@@ -211,8 +211,8 @@ MOE_GATE_BYPASS = '''
                 if _sh_out is not None:
                     _final = _final + _sh_out
                 if self.tp_size > 1 and not should_allreduce_fusion and not use_reduce_scatter:
-                    from sglang.srt.distributed.parallel_state import tensor_model_parallel_all_reduce as _ar
-                    _final = _ar(_final)
+                    import torch.distributed as _dist
+                    _dist.all_reduce(_final)
                 return _final
 '''
 
