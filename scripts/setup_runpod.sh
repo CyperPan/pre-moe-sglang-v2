@@ -42,7 +42,7 @@ echo "[5/6] LD_LIBRARY_PATH set"
 echo "[6/6] Building C++ extension & installing premoe..."
 rm -rf build/ *.egg-info pre_moe_cpp*.so
 python setup.py build_ext --inplace 2>&1
-pip install -e . --no-build-isolation 2>&1 | tail -3
+BUILD_EXT=0 pip install -e . --no-build-isolation 2>&1 | tail -3
 
 # Verify C++ extension
 python -c "
