@@ -5,7 +5,11 @@ set -eo pipefail
 
 cd "$(dirname "$0")/.."
 
-TORCH_LIB=$(python -c "import torch; print(torch.__path__[0])")/lib
+# Fix nvidia lib version mismatch (must happen before any torch import)
+SITE_PKGS=$(python -c "import site; print(site.getsitepackages()[0])")
+NVJITLINK_LIB="${SITE_PKGS}/nvidia/nvjitlink/lib/libnvJitLink.so.12"
+[ -f "$NVJITLINK_LIB" ] && export LD_PRELOAD="$NVJITLINK_LIB"
+TORCH_LIB="${SITE_PKGS}/torch/lib"
 export LD_LIBRARY_PATH=$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 export HF_HOME=${HF_HOME:-/workspace/huggingface_cache}
 

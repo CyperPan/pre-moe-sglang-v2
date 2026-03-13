@@ -9,7 +9,7 @@ echo "  Pre-MoE × SGLang PoC — RunPod Setup"
 echo "============================================"
 
 # 1. GPU check
-echo "[1/6] GPUs:"
+echo "[1/5] GPUs:"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
 GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader | wc -l)
 if [ "$GPU_COUNT" -lt 2 ]; then
@@ -20,39 +20,50 @@ fi
 # 2. HF cache (avoid filling root disk)
 export HF_HOME=${HF_HOME:-/workspace/huggingface_cache}
 mkdir -p "$HF_HOME"
-echo 'export HF_HOME=/workspace/huggingface_cache' >> ~/.bashrc 2>/dev/null || true
-echo "[2/6] HF_HOME=$HF_HOME"
+echo "[2/5] HF_HOME=$HF_HOME"
 
-# 3. Install SGLang first (it pins its own torch + transformers versions)
-echo "[3/6] Installing SGLang + dependencies..."
+# 3. Install SGLang (it pins its own torch + transformers versions)
+echo "[3/5] Installing SGLang + dependencies..."
 pip install "sglang[all]" -q
 pip install numpy matplotlib ninja accelerate -q
 
-# 4. Fix nvJitLink version mismatch BEFORE any torch import
-#    pip-installed nvidia packages (12.8) conflict with system CUDA (12.4)
-#    Solution: put pip's nvidia libs first in LD_LIBRARY_PATH
-echo "[4/6] Fixing LD_LIBRARY_PATH..."
+# 4. Fix nvJitLink version mismatch + build C++ extension
+#    pip nvidia packages (e.g. 12.8) can conflict with system CUDA (e.g. 12.4).
+#    Use LD_PRELOAD to force the pip version of libnvJitLink.
+echo "[4/5] Fixing nvidia lib paths & building C++ extension..."
 SITE_PKGS=$(python -c "import site; print(site.getsitepackages()[0])")
-NVJITLINK_DIR="${SITE_PKGS}/nvidia/nvjitlink/lib"
-if [ ! -d "$NVJITLINK_DIR" ]; then
-    NVJITLINK_DIR=""
-fi
+NVJITLINK_LIB="${SITE_PKGS}/nvidia/nvjitlink/lib/libnvJitLink.so.12"
 TORCH_LIB="${SITE_PKGS}/torch/lib"
-export LD_LIBRARY_PATH=$NVJITLINK_DIR:$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
-echo "export LD_LIBRARY_PATH=$NVJITLINK_DIR:$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH" >> ~/.bashrc 2>/dev/null || true
-echo "  nvjitlink=$NVJITLINK_DIR"
+
+# LD_PRELOAD forces the correct nvJitLink before anything else loads
+if [ -f "$NVJITLINK_LIB" ]; then
+    export LD_PRELOAD="$NVJITLINK_LIB"
+    echo "  LD_PRELOAD=$NVJITLINK_LIB"
+fi
+export LD_LIBRARY_PATH=$TORCH_LIB:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+unset LD_PRELOAD_OLD 2>/dev/null || true
 
 # Verify torch loads
 python -c "import torch; print(f'  PyTorch {torch.__version__}, CUDA {torch.version.cuda}')"
 
-# 5. Build C++ extension + install premoe package
-echo "[5/6] Building C++ extension & installing premoe..."
+# Build C++ extension
 rm -rf build/ *.egg-info pre_moe_cpp*.so
 python setup.py build_ext --inplace
 BUILD_EXT=0 pip install -e . --no-build-isolation
 
-# 6. Verify
-echo "[6/6] Verifying..."
+# Write persistent env to bashrc (clean: remove old entries first)
+sed -i '/PREMOE_ENV/d' ~/.bashrc 2>/dev/null || true
+sed -i '/HF_HOME/d' ~/.bashrc 2>/dev/null || true
+cat >> ~/.bashrc << BASHEOF
+# PREMOE_ENV start
+export HF_HOME=/workspace/huggingface_cache
+export LD_PRELOAD=${NVJITLINK_LIB}
+export LD_LIBRARY_PATH=${TORCH_LIB}:/usr/lib/x86_64-linux-gnu:/usr/local/cuda/lib64:\$LD_LIBRARY_PATH
+# PREMOE_ENV end
+BASHEOF
+
+# 5. Verify everything
+echo "[5/5] Verifying..."
 python -c "
 import pre_moe_cpp
 funcs = [x for x in dir(pre_moe_cpp) if not x.startswith('_')]
