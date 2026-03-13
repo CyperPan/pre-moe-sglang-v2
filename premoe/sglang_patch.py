@@ -33,7 +33,7 @@ Environment variables (read at runtime by patched code):
 """
 
 import importlib
-import inspect
+import importlib.util
 import os
 import shutil
 import sys
@@ -41,18 +41,40 @@ from pathlib import Path
 
 
 def _get_deepseek_v2_path() -> Path:
-    """Find the installed SGLang deepseek_v2.py."""
+    """Find the installed SGLang deepseek_v2.py without importing it.
+
+    Avoids triggering the full SGLang import chain (which may fail if
+    system libs like libnuma are missing).
+    """
+    # Method 1: use importlib to find the package without executing it
     try:
-        import sglang.srt.models.deepseek_v2 as mod
-        return Path(inspect.getfile(mod))
-    except ImportError:
-        for p in [
-            Path("/opt/miniconda3/lib/python3.13/site-packages/sglang/srt/models/deepseek_v2.py"),
-            Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages" / "sglang" / "srt" / "models" / "deepseek_v2.py",
-        ]:
-            if p.exists():
-                return p
-        raise FileNotFoundError("Cannot find SGLang's deepseek_v2.py")
+        spec = importlib.util.find_spec("sglang.srt.models.deepseek_v2")
+        if spec and spec.origin:
+            return Path(spec.origin)
+    except (ModuleNotFoundError, ValueError):
+        pass
+
+    # Method 2: find sglang package root and construct path
+    try:
+        spec = importlib.util.find_spec("sglang")
+        if spec and spec.submodule_search_locations:
+            for loc in spec.submodule_search_locations:
+                p = Path(loc) / "srt" / "models" / "deepseek_v2.py"
+                if p.exists():
+                    return p
+    except (ModuleNotFoundError, ValueError):
+        pass
+
+    # Method 3: search common site-packages paths
+    for base in [
+        Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
+        Path("/usr/local/lib") / f"python{sys.version_info.major}.{sys.version_info.minor}" / "dist-packages",
+    ]:
+        p = base / "sglang" / "srt" / "models" / "deepseek_v2.py"
+        if p.exists():
+            return p
+
+    raise FileNotFoundError("Cannot find SGLang's deepseek_v2.py")
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +117,8 @@ FORWARD_PATCH_BEFORE_ATTN = '''
                     _state = _torch.load(_probe_path, map_location=hidden_states.device, weights_only=True)
                     _dim = _state["linear.weight"].shape[1]
                     _n_exp = _state["linear.weight"].shape[0]
-                    self._premoe_probe = LinearProbe(_dim, _n_exp).to(hidden_states.device)
-                    self._premoe_probe.load_state_dict(_state)
+                    self._premoe_probe = LinearProbe(_dim, _n_exp).to(device=hidden_states.device, dtype=hidden_states.dtype)
+                    self._premoe_probe.load_state_dict({k: v.to(hidden_states.dtype) for k, v in _state.items()})
                     self._premoe_probe.eval()
                     self._premoe_num_experts = _n_exp
                     self._premoe_comm_stream = _torch.cuda.Stream(priority=-1)
@@ -109,7 +131,7 @@ FORWARD_PATCH_BEFORE_ATTN = '''
                 print(f"[Pre-MoE] Layer {self.layer_id}: serial-delay (delay={self._premoe_delay_us}us)")
             else:
                 self._premoe_mode = None
-        if self._premoe_mode == "premoe" and self._premoe_probe is not None and hidden_states.shape[0] > 0:
+        if self._premoe_mode == "premoe" and self._premoe_probe is not None and hidden_states.shape[0] > 1:
             import torch as _torch
             with _torch.no_grad():
                 _probe_logits = self._premoe_probe(hidden_states)
@@ -132,10 +154,10 @@ FORWARD_PATCH_BEFORE_ATTN = '''
 # ---------------------------------------------------------------------------
 FORWARD_PATCH_BEFORE_MLP = '''
         # ── Pre-MoE: sync pre-dispatch / serial delay ──
-        if self._premoe_mode == "premoe" and self._premoe_comm_stream is not None:
+        if self._premoe_mode == "premoe" and self._premoe_pred_ids is not None and self._premoe_comm_stream is not None:
             import torch as _torch
             _torch.cuda.current_stream().wait_stream(self._premoe_comm_stream)
-        elif self._premoe_mode == "serial" and self._premoe_delay_us > 0:
+        elif self._premoe_mode in ("serial", "premoe") and self._premoe_delay_us > 0:
             import torch as _torch
             if hidden_states is not None and hidden_states.shape[0] > 0:
                 _torch.cuda._sleep(int(self._premoe_delay_us * 1000))
@@ -188,8 +210,8 @@ MOE_GATE_BYPASS = '''
                 if _sh_out is not None:
                     _final = _final + _sh_out
                 if self.tp_size > 1 and not should_allreduce_fusion and not use_reduce_scatter:
-                    from sglang.srt.distributed.parallel_state import tensor_model_parallel_all_reduce as _ar
-                    _final = _ar(_final)
+                    import torch.distributed as _dist
+                    _dist.all_reduce(_final)
                 return _final
 '''
 

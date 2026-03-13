@@ -24,6 +24,7 @@ echo "[2/5] HF_HOME=$HF_HOME"
 
 # 3. Install SGLang (it pins its own torch + transformers versions)
 echo "[3/5] Installing SGLang + dependencies..."
+apt-get install -y -qq libnuma-dev 2>/dev/null || true
 pip install "sglang[all]" -q
 pip install numpy matplotlib ninja accelerate -q
 

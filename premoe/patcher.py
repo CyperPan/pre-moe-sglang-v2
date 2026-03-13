@@ -209,14 +209,15 @@ def _patch_decoder_layer(layer, st: PreMoELayerState):
         gemm_output_zero_allocator=None,
     ):
         has_tokens = hidden_states is not None and hidden_states.shape[0] > 0
+        is_prefill = hidden_states is not None and hidden_states.shape[0] > 1
 
         # ── Phase 1: prepare_attn (RMSNorm → pre-attention hidden states) ──
         hidden_states, residual = self.layer_communicator.prepare_attn(
             hidden_states, residual, forward_batch, "",
         )
 
-        # ── Phase 2: Probe + pre-dispatch on comm stream (premoe only) ──
-        if st.mode == "premoe" and has_tokens and st.probe is not None:
+        # ── Phase 2: Probe + pre-dispatch on comm stream (prefill only) ──
+        if st.mode == "premoe" and is_prefill and st.probe is not None:
             st.run_probe(hidden_states)
 
             # Launch simulated AllToAll on comm stream (overlaps with attention)
@@ -254,7 +255,7 @@ def _patch_decoder_layer(layer, st: PreMoELayerState):
             mlp_alloc = None
 
         # ── Phase 5: MoE dispatch replacement ──
-        if st.mode == "premoe" and has_tokens and st.probe is not None:
+        if st.mode == "premoe" and is_prefill and st.probe is not None:
             # 5a. Sync: wait for overlapped pre-dispatch to finish
             torch.cuda.current_stream().wait_stream(st.comm_stream)
 
