@@ -87,7 +87,7 @@ class PreMoELayerPipeline:
         # Stats tracking
         self._total_tokens = 0
         self._total_mismatches = 0
-        self._pred_ids: torch.Tensor | None = None
+        self._pred_ids = None
 
     def launch_speculative_dispatch(self, h_pre: torch.Tensor):
         """Phase 1-2: Run probe and launch speculative AllToAll on comm stream.

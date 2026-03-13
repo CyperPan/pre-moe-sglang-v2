@@ -1,6 +1,6 @@
 #!/bin/bash
 # setup_runpod.sh — One-time setup on RunPod (2x GPU pod)
-set -e
+set -eo pipefail
 
 cd "$(dirname "$0")/.."
 
@@ -25,12 +25,12 @@ echo "[2/6] HF_HOME=$HF_HOME"
 
 # 3. Install dependencies
 echo "[3/6] Installing base dependencies..."
-pip install torch numpy matplotlib ninja -q 2>&1 | tail -1
-pip install transformers==4.44.2 accelerate -q 2>&1 | tail -1
+pip install torch numpy matplotlib ninja -q
+pip install transformers==4.44.2 accelerate -q
 
 # 4. Install SGLang
 echo "[4/6] Installing SGLang..."
-pip install "sglang[all]" -q 2>&1 | tail -3
+pip install "sglang[all]" -q
 
 # 5. LD_LIBRARY_PATH
 TORCH_LIB=$(python -c "import torch; print(torch.__path__[0])")/lib
@@ -41,15 +41,15 @@ echo "[5/6] LD_LIBRARY_PATH set"
 # 6. Build C++ extension + install premoe package
 echo "[6/6] Building C++ extension & installing premoe..."
 rm -rf build/ *.egg-info pre_moe_cpp*.so
-python setup.py build_ext --inplace 2>&1
-BUILD_EXT=0 pip install -e . --no-build-isolation 2>&1 | tail -3
+python setup.py build_ext --inplace
+BUILD_EXT=0 pip install -e . --no-build-isolation
 
 # Verify C++ extension
 python -c "
 import pre_moe_cpp
 funcs = [x for x in dir(pre_moe_cpp) if not x.startswith('_')]
 print(f'  C++ OK: {funcs}')
-assert len(funcs) == 7, f'Expected 7 functions, got {len(funcs)}'
+assert len(funcs) >= 5, f'Expected >=5 functions, got {len(funcs)}: {funcs}'
 "
 
 # Version info

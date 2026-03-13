@@ -1,7 +1,7 @@
 #!/bin/bash
 # run_benchmark.sh — Full E2E benchmark pipeline on RunPod
 # Extracts traces → trains probes → runs benchmark across all delays
-set -e
+set -eo pipefail
 
 cd "$(dirname "$0")/.."
 

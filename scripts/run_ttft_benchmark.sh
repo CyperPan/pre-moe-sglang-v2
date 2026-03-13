@@ -13,7 +13,7 @@
 #   - bash scripts/setup_runpod.sh      (build C++ extension, install deps)
 #   - bash scripts/run_benchmark.sh extract train   (get probes)
 #   - pip install "sglang[all]"
-set -e
+set -eo pipefail
 
 cd "$(dirname "$0")/.."
 
@@ -31,7 +31,22 @@ DELAY_US=${3:-2000}                 # simulated EP dispatch delay (μs)
 export PREMOE_DELAY_US=$DELAY_US
 export PREMOE_PROBE_DIR="${PREMOE_PROBE_DIR:-$(pwd)/probes}"
 
+WAIT_TIMEOUT=300  # seconds to wait for server startup
+
 mkdir -p results
+
+# Cleanup trap: kill servers + revert patches on exit/error
+cleanup() {
+    echo "  Cleaning up..."
+    kill $VANILLA_PID 2>/dev/null || true
+    kill $PREMOE_PID 2>/dev/null || true
+    wait $VANILLA_PID 2>/dev/null || true
+    wait $PREMOE_PID 2>/dev/null || true
+    PYTHONPATH=. python -m premoe.sglang_patch revert 2>/dev/null || true
+}
+VANILLA_PID=""
+PREMOE_PID=""
+trap cleanup EXIT
 
 echo "============================================================"
 echo "  Pre-MoE × SGLang — TTFT & Throughput Benchmark"
@@ -42,9 +57,38 @@ echo "  Max tokens:  $MAX_TOKENS"
 echo "  Dispatch delay:  ${DELAY_US}μs per MoE layer"
 echo ""
 
+# Check probes exist
+if [ ! -d "$PREMOE_PROBE_DIR" ] || [ -z "$(ls "$PREMOE_PROBE_DIR"/probe_layer*.pt 2>/dev/null)" ]; then
+    echo "ERROR: No probe files found in $PREMOE_PROBE_DIR"
+    echo "  Run: bash scripts/run_benchmark.sh extract train"
+    exit 1
+fi
+
 # ── Apply source patches (one-time, mode-agnostic) ──
 PYTHONPATH=. python -m premoe.sglang_patch revert 2>/dev/null || true
 PYTHONPATH=. python -m premoe.sglang_patch apply
+
+# ──────────────────────────────────────────────
+# Helper: wait for server health check
+# ──────────────────────────────────────────────
+wait_for_server() {
+    local port=$1
+    local pid=$2
+    local name=$3
+    for i in $(seq 1 $WAIT_TIMEOUT); do
+        if curl -s "http://localhost:$port/health" > /dev/null 2>&1; then
+            echo "  $name server ready! (${i}s)"
+            return 0
+        fi
+        if ! kill -0 $pid 2>/dev/null; then
+            echo "  ERROR: $name server process died."
+            exit 1
+        fi
+        sleep 1
+    done
+    echo "  ERROR: $name server not ready after ${WAIT_TIMEOUT}s"
+    exit 1
+}
 
 # ──────────────────────────────────────────────
 # Step 1: Start SERIAL baseline SGLang server
@@ -65,18 +109,7 @@ VANILLA_PID=$!
 echo "  Baseline server PID: $VANILLA_PID"
 
 echo "  Waiting for baseline server..."
-for i in $(seq 1 180); do
-    if curl -s "http://localhost:$VANILLA_PORT/health" > /dev/null 2>&1; then
-        echo "  Baseline server ready! (${i}s)"
-        break
-    fi
-    if ! kill -0 $VANILLA_PID 2>/dev/null; then
-        echo "  ERROR: Baseline server process died."
-        PYTHONPATH=. python -m premoe.sglang_patch revert
-        exit 1
-    fi
-    sleep 1
-done
+wait_for_server $VANILLA_PORT $VANILLA_PID "Baseline"
 
 # ──────────────────────────────────────────────
 # Step 2: Benchmark serial baseline
@@ -101,6 +134,7 @@ python -m sglang.bench_serving \
 echo "  Stopping baseline server..."
 kill $VANILLA_PID 2>/dev/null || true
 wait $VANILLA_PID 2>/dev/null || true
+VANILLA_PID=""
 sleep 3
 
 # ──────────────────────────────────────────────
@@ -123,18 +157,7 @@ PREMOE_PID=$!
 echo "  Pre-MoE server PID: $PREMOE_PID"
 
 echo "  Waiting for Pre-MoE server..."
-for i in $(seq 1 180); do
-    if curl -s "http://localhost:$PREMOE_PORT/health" > /dev/null 2>&1; then
-        echo "  Pre-MoE server ready! (${i}s)"
-        break
-    fi
-    if ! kill -0 $PREMOE_PID 2>/dev/null; then
-        echo "  ERROR: Pre-MoE server process died."
-        PYTHONPATH=. python -m premoe.sglang_patch revert
-        exit 1
-    fi
-    sleep 1
-done
+wait_for_server $PREMOE_PORT $PREMOE_PID "Pre-MoE"
 
 # ──────────────────────────────────────────────
 # Step 4: Benchmark Pre-MoE
@@ -159,9 +182,7 @@ python -m sglang.bench_serving \
 echo "  Stopping Pre-MoE server..."
 kill $PREMOE_PID 2>/dev/null || true
 wait $PREMOE_PID 2>/dev/null || true
-
-# Revert source patches
-PYTHONPATH=. python -m premoe.sglang_patch revert
+PREMOE_PID=""
 
 # ──────────────────────────────────────────────
 # Compare
