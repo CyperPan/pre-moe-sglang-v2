@@ -24,7 +24,38 @@ class LinearProbe(nn.Module):
         return self.linear(x)
 
 
-def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_path):
+def compute_gpu_acc_vectorized(pred_topk, true_ids, num_experts, ep_size):
+    """Vectorized GPU dispatch accuracy computation."""
+    experts_per_gpu = num_experts // ep_size
+    pred_gpus = pred_topk // experts_per_gpu  # [N, topk]
+    true_gpus = true_ids.long() // experts_per_gpu  # [N, topk]
+    # For each token: set of predicted GPU IDs == set of true GPU IDs
+    # Approximate via: check if all unique true GPUs appear in pred GPUs
+    # and no extra GPUs appear in pred that aren't in true
+    pred_gpu_set = torch.zeros(pred_gpus.shape[0], ep_size, device=pred_gpus.device)
+    true_gpu_set = torch.zeros(true_gpus.shape[0], ep_size, device=true_gpus.device)
+    pred_gpu_set.scatter_(1, pred_gpus.clamp(0, ep_size - 1), 1.0)
+    true_gpu_set.scatter_(1, true_gpus.clamp(0, ep_size - 1), 1.0)
+    match = (pred_gpu_set == true_gpu_set).all(dim=1)
+    return match.float().mean().item()
+
+
+def compute_recall_vectorized(pred_topk, true_ids, num_experts):
+    """Vectorized top-k recall computation."""
+    N = pred_topk.shape[0]
+    # Create binary masks and compute overlap
+    pred_mask = torch.zeros(N, num_experts, device=pred_topk.device)
+    true_mask = torch.zeros(N, num_experts, device=true_ids.device)
+    for k in range(pred_topk.shape[1]):
+        pred_mask.scatter_(1, pred_topk[:, k:k+1].long(), 1.0)
+    for k in range(true_ids.shape[1]):
+        true_mask.scatter_(1, true_ids[:, k:k+1].long(), 1.0)
+    overlap = (pred_mask * true_mask).sum(dim=1)
+    true_count = true_mask.sum(dim=1).clamp(min=1)
+    return (overlap / true_count).mean().item()
+
+
+def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_path, epochs):
     """Train and evaluate a probe for one layer."""
     print(f"\n{'='*60}")
     print(f"  Training probe: {Path(traces_path).stem}")
@@ -57,7 +88,7 @@ def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_pat
         return targets
 
     train_targets = make_targets(train_ids, num_experts).to(device)
-    test_targets = make_targets(test_ids, num_experts).to(device)
+    test_ids_dev = test_ids.to(device)
 
     probe = LinearProbe(hidden_dim, num_experts).to(device)
     with torch.no_grad():
@@ -65,9 +96,9 @@ def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_pat
 
     optimizer = torch.optim.Adam(probe.parameters(), lr=1e-3, weight_decay=1e-5)
     batch_size = 4096
-    best_acc = 0.0
+    best_gpu_acc = 0.0
 
-    for epoch in range(30):
+    for epoch in range(epochs):
         probe.train()
         perm = torch.randperm(train_h.shape[0], device=device)
         total_loss = 0.0
@@ -88,32 +119,16 @@ def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_pat
             with torch.no_grad():
                 test_logits = probe(test_h)
                 pred_topk = torch.topk(test_logits, k=topk, dim=-1).indices
-                test_ids_dev = test_ids.to(device)
 
-                total_recall = 0.0
-                for t in range(test_h.shape[0]):
-                    ps = set(pred_topk[t].cpu().tolist())
-                    ts = set(test_ids[t].tolist())
-                    total_recall += len(ps & ts) / max(len(ts), 1)
-                avg_recall = total_recall / test_h.shape[0]
-
-                experts_per_gpu = num_experts // ep_size
-                pred_gpus = pred_topk // experts_per_gpu
-                true_gpus = test_ids_dev.long() // experts_per_gpu
-
-                gpu_match = 0
-                for t in range(test_h.shape[0]):
-                    pg = set(pred_gpus[t].cpu().tolist())
-                    tg = set(true_gpus[t].cpu().tolist())
-                    if pg == tg:
-                        gpu_match += 1
-                gpu_acc = gpu_match / test_h.shape[0]
+                avg_recall = compute_recall_vectorized(pred_topk, test_ids_dev, num_experts)
+                gpu_acc = compute_gpu_acc_vectorized(pred_topk, test_ids_dev, num_experts, ep_size)
 
             print(f"  Epoch {epoch+1:2d}: loss={total_loss/n_batches:.4f}, "
                   f"top-{topk} recall={avg_recall:.4f}, GPU-acc={gpu_acc:.4f}")
 
-            if avg_recall > best_acc:
-                best_acc = avg_recall
+            # Select best model by GPU dispatch accuracy (not recall)
+            if gpu_acc > best_gpu_acc:
+                best_gpu_acc = gpu_acc
                 torch.save(probe.state_dict(), save_path)
 
     # Final evaluation
@@ -123,37 +138,21 @@ def train_probe_for_layer(traces_path, gate_weight_path, topk, ep_size, save_pat
     with torch.no_grad():
         test_logits = probe(test_h)
         pred_topk = torch.topk(test_logits, k=topk, dim=-1).indices
-        pred_topk_cpu = pred_topk.cpu()
 
-        recalls = []
-        for t in range(test_h.shape[0]):
-            ps = set(pred_topk_cpu[t].tolist())
-            ts = set(test_ids[t].tolist())
-            recalls.append(len(ps & ts) / max(len(ts), 1))
-        recalls = torch.tensor(recalls)
-
-        experts_per_gpu = num_experts // ep_size
-        pred_gpus = pred_topk_cpu // experts_per_gpu
-        true_gpus = test_ids.long() // experts_per_gpu
-
-        gpu_matches = []
-        for t in range(test_h.shape[0]):
-            pg = set(pred_gpus[t].tolist())
-            tg = set(true_gpus[t].tolist())
-            gpu_matches.append(1.0 if pg == tg else 0.0)
-        gpu_matches = torch.tensor(gpu_matches)
+        avg_recall = compute_recall_vectorized(pred_topk, test_ids_dev, num_experts)
+        gpu_acc = compute_gpu_acc_vectorized(pred_topk, test_ids_dev, num_experts, ep_size)
 
     results = {
-        "expert_topk_recall": recalls.mean().item(),
-        "gpu_dispatch_accuracy": gpu_matches.mean().item(),
-        "gpu_miss_rate": 1.0 - gpu_matches.mean().item(),
+        "expert_topk_recall": avg_recall,
+        "gpu_dispatch_accuracy": gpu_acc,
+        "gpu_miss_rate": 1.0 - gpu_acc,
         "total_test_tokens": test_h.shape[0],
     }
 
     print(f"\n  Final: recall={results['expert_topk_recall']:.4f}, "
           f"GPU-acc={results['gpu_dispatch_accuracy']:.4f}")
 
-    del train_h, test_h, train_targets, test_targets
+    del train_h, test_h, train_targets
     probe.cpu()
     torch.cuda.empty_cache()
 
@@ -166,6 +165,8 @@ def main():
     parser.add_argument("--probes-dir", default="probes")
     parser.add_argument("--topk", type=int, default=6)
     parser.add_argument("--ep-size", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=60,
+                        help="Training epochs (default 60, weak layers may need more)")
     args = parser.parse_args()
 
     traces_dir = Path(args.traces_dir)
@@ -190,7 +191,7 @@ def main():
 
         results = train_probe_for_layer(
             str(traces_path), str(gate_path),
-            args.topk, args.ep_size, str(probe_path)
+            args.topk, args.ep_size, str(probe_path), args.epochs
         )
         all_results[f"layer_{layer_idx}"] = results
 

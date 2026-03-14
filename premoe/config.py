@@ -16,7 +16,7 @@ class PreMoEConfig:
 
     # Probe settings
     probe_dir: str = "probes"
-    anchor_layers: List[int] = field(default_factory=lambda: [1, 14, 26])
+    anchor_layers: List[int] = field(default_factory=lambda: list(range(1, 27)))
 
     # Pipeline control
     enable_verification: bool = True
