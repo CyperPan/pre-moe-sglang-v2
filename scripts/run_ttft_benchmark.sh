@@ -3,16 +3,10 @@
 #
 # Compares Serial EP (blocking AllToAll) vs Pre-MoE (overlapped dispatch).
 #
-# Serial:  attn → AllToAll delay(blocking) → gate → experts
-# Pre-MoE: probe → AllToAll(comm stream) ‖ attn → gate → verify → experts
-#
-# When probe prediction is correct (~95%+), the AllToAll delay is hidden
-# behind attention → measurable TTFT and throughput improvement.
-#
-# Prerequisites:
-#   - bash scripts/setup_runpod.sh      (build C++ extension, install deps)
-#   - bash scripts/run_benchmark.sh extract train   (get probes)
-#   - pip install "sglang[all]"
+# Usage:
+#   bash scripts/run_ttft_benchmark.sh [NUM_PROMPTS] [MAX_TOKENS] [DELAY_US] [INPUT_LEN] [REQUEST_RATE]
+#   bash scripts/run_ttft_benchmark.sh 50 128 5000 2048
+#   bash scripts/run_ttft_benchmark.sh 50 128 5000 2048 10   # rate-limited
 set -eo pipefail
 
 cd "$(dirname "$0")/.."
@@ -34,6 +28,7 @@ MAX_TOKENS=${2:-128}
 DELAY_US=${3:-2000}                 # simulated EP dispatch delay (μs)
 INPUT_LEN=${4:-2048}                # input token length (longer = more overlap benefit)
 REQUEST_RATE=${5:-inf}              # request rate (inf=closed-loop, or e.g. 5, 10)
+WARMUP=${6:-5}                      # warmup requests for stable results
 export PREMOE_DELAY_US=$DELAY_US
 export PREMOE_PROBE_DIR="${PREMOE_PROBE_DIR:-$(pwd)/probes}"
 
@@ -62,8 +57,15 @@ echo "  Prompts:     $NUM_PROMPTS"
 echo "  Max tokens:  $MAX_TOKENS"
 echo "  Input length:    $INPUT_LEN tokens"
 echo "  Request rate:    $REQUEST_RATE req/s"
+echo "  Warmup:          $WARMUP requests"
 echo "  Dispatch delay:  ${DELAY_US}μs per MoE layer"
 echo ""
+
+# Build request-rate flag
+RATE_FLAG=""
+if [ "$REQUEST_RATE" != "inf" ]; then
+    RATE_FLAG="--request-rate $REQUEST_RATE"
+fi
 
 # Check probes exist
 if [ ! -d "$PREMOE_PROBE_DIR" ] || [ -z "$(ls "$PREMOE_PROBE_DIR"/probe_layer*.pt 2>/dev/null)" ]; then
@@ -127,11 +129,6 @@ echo "╔═══════════════════════�
 echo "║  Step 2/4: Benchmark Serial Baseline         ║"
 echo "╚══════════════════════════════════════════════╝"
 
-RATE_FLAG=""
-if [ "$REQUEST_RATE" != "inf" ]; then
-    RATE_FLAG="--request-rate $REQUEST_RATE"
-fi
-
 python -m sglang.bench_serving \
     --backend sglang \
     --host 127.0.0.1 \
@@ -141,6 +138,7 @@ python -m sglang.bench_serving \
     --random-input-len $INPUT_LEN \
     --random-output-len $MAX_TOKENS \
     --num-prompts $NUM_PROMPTS \
+    --warmup-requests $WARMUP \
     $RATE_FLAG \
     --output-file results/serial_bench_serving.jsonl \
     2>&1 | tee results/serial_ttft.log
@@ -190,6 +188,7 @@ python -m sglang.bench_serving \
     --random-input-len $INPUT_LEN \
     --random-output-len $MAX_TOKENS \
     --num-prompts $NUM_PROMPTS \
+    --warmup-requests $WARMUP \
     $RATE_FLAG \
     --output-file results/premoe_bench_serving.jsonl \
     2>&1 | tee results/premoe_ttft.log
@@ -221,6 +220,8 @@ def parse_log(path):
             (r'P99 TTFT.*?([\d.]+)', 'ttft_p99'),
             (r'Output token throughput.*?([\d.]+)', 'throughput'),
             (r'Request throughput.*?([\d.]+)', 'req_tps'),
+            (r'Mean TPOT.*?([\d.]+)', 'tpot_mean'),
+            (r'Median TPOT.*?([\d.]+)', 'tpot_p50'),
         ]:
             found = re.search(pat, line)
             if found:
@@ -240,6 +241,8 @@ for k, name, unit in [
     ('ttft_mean', 'TTFT mean (ms)', 'ms'),
     ('ttft_p50',  'TTFT median (ms)', 'ms'),
     ('ttft_p99',  'TTFT p99 (ms)', 'ms'),
+    ('tpot_mean', 'TPOT mean (ms)', 'ms'),
+    ('tpot_p50',  'TPOT median (ms)', 'ms'),
     ('throughput','Output throughput (tok/s)', ''),
     ('req_tps',   'Request throughput (req/s)', ''),
 ]:
