@@ -153,9 +153,11 @@ FORWARD_PATCH_BEFORE_ATTN = '''
                 self._premoe_pred_ids = _torch.topk(_probe_logits, k=self._premoe_topk, dim=-1, sorted=False).indices
             if self._premoe_comm_stream is not None and self._premoe_delay_cycles > 0:
                 self._premoe_comm_event.record()
-                with _torch.cuda.stream(self._premoe_comm_stream):
-                    self._premoe_comm_stream.wait_event(self._premoe_comm_event)
-                    _torch.cuda._sleep(self._premoe_delay_cycles)
+                self._premoe_comm_stream.wait_event(self._premoe_comm_event)
+                _prev_stream = _torch.cuda.current_stream()
+                _torch.cuda.set_stream(self._premoe_comm_stream)
+                _torch.cuda._sleep(self._premoe_delay_cycles)
+                _torch.cuda.set_stream(_prev_stream)
 '''
 
 # ---------------------------------------------------------------------------
@@ -168,7 +170,7 @@ FORWARD_PATCH_BEFORE_MLP = '''
         if self._premoe_mode == "premoe" and self._premoe_pred_ids is not None and self._premoe_comm_stream is not None:
             self._premoe_torch.cuda.current_stream().wait_stream(self._premoe_comm_stream)
             self._premoe_pred_ids = None
-        elif self._premoe_mode in ("serial", "premoe") and self._premoe_delay_cycles > 0:
+        elif self._premoe_mode == "serial" and self._premoe_delay_cycles > 0:
             if hidden_states is not None and hidden_states.shape[0] > 0:
                 self._premoe_torch.cuda._sleep(self._premoe_delay_cycles)
 '''

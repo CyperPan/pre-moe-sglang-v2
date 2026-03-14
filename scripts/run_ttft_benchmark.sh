@@ -32,6 +32,8 @@ PREMOE_PORT=30001
 NUM_PROMPTS=${1:-50}
 MAX_TOKENS=${2:-128}
 DELAY_US=${3:-2000}                 # simulated EP dispatch delay (μs)
+INPUT_LEN=${4:-2048}                # input token length (longer = more overlap benefit)
+REQUEST_RATE=${5:-inf}              # request rate (inf=closed-loop, or e.g. 5, 10)
 export PREMOE_DELAY_US=$DELAY_US
 export PREMOE_PROBE_DIR="${PREMOE_PROBE_DIR:-$(pwd)/probes}"
 
@@ -58,6 +60,8 @@ echo "============================================================"
 echo "  Model:       $MODEL"
 echo "  Prompts:     $NUM_PROMPTS"
 echo "  Max tokens:  $MAX_TOKENS"
+echo "  Input length:    $INPUT_LEN tokens"
+echo "  Request rate:    $REQUEST_RATE req/s"
 echo "  Dispatch delay:  ${DELAY_US}μs per MoE layer"
 echo ""
 
@@ -123,15 +127,21 @@ echo "╔═══════════════════════�
 echo "║  Step 2/4: Benchmark Serial Baseline         ║"
 echo "╚══════════════════════════════════════════════╝"
 
+RATE_FLAG=""
+if [ "$REQUEST_RATE" != "inf" ]; then
+    RATE_FLAG="--request-rate $REQUEST_RATE"
+fi
+
 python -m sglang.bench_serving \
     --backend sglang \
     --host 127.0.0.1 \
     --port $VANILLA_PORT \
     --model "$MODEL" \
     --dataset-name random \
-    --random-input-len 512 \
+    --random-input-len $INPUT_LEN \
     --random-output-len $MAX_TOKENS \
     --num-prompts $NUM_PROMPTS \
+    $RATE_FLAG \
     --output-file results/serial_bench_serving.jsonl \
     2>&1 | tee results/serial_ttft.log
 
@@ -177,9 +187,10 @@ python -m sglang.bench_serving \
     --port $PREMOE_PORT \
     --model "$MODEL" \
     --dataset-name random \
-    --random-input-len 512 \
+    --random-input-len $INPUT_LEN \
     --random-output-len $MAX_TOKENS \
     --num-prompts $NUM_PROMPTS \
+    $RATE_FLAG \
     --output-file results/premoe_bench_serving.jsonl \
     2>&1 | tee results/premoe_ttft.log
 

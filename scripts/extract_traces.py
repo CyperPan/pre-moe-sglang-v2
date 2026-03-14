@@ -48,6 +48,33 @@ def get_long_prompts(num_prompts: int, target_tokens: int) -> list[str]:
         "are determined by the compatibility between query and key vectors. Flash attention "
         "reduces memory footprint by computing attention in blocks, avoiding materialization "
         "of the full attention matrix. This enables processing of much longer sequences. ",
+
+        "Reinforcement learning from human feedback has become a standard technique for aligning "
+        "language models with human preferences. The reward model learns to predict human ratings "
+        "of model outputs, which guides policy optimization through proximal policy algorithms. "
+        "Constitutional AI extends this by training models to critique their own responses. ",
+
+        "Quantization techniques reduce model memory footprint by representing weights and "
+        "activations with fewer bits. Post-training quantization applies compression without "
+        "retraining, while quantization-aware training incorporates precision constraints during "
+        "optimization. INT8 and FP8 formats balance accuracy with computational efficiency. ",
+
+        "The transformer architecture processes sequences through self-attention layers that "
+        "compute pairwise token interactions. Multi-head attention allows the model to attend "
+        "to information from different representation subspaces at different positions. Layer "
+        "normalization and residual connections stabilize training of deep networks. ",
+
+        "Distributed training of large models requires sophisticated parallelism strategies "
+        "including data parallelism, tensor parallelism, pipeline parallelism, and expert "
+        "parallelism. ZeRO optimization partitions optimizer states, gradients, and parameters "
+        "across data parallel ranks to reduce memory redundancy. Communication efficiency is "
+        "critical for achieving near-linear scaling. ",
+
+        "Speculative decoding accelerates autoregressive generation by using a smaller draft "
+        "model to propose multiple tokens that are then verified in parallel by the target "
+        "model. The acceptance rate depends on the alignment between draft and target model "
+        "distributions. This technique provides lossless speedup while maintaining output "
+        "quality identical to standard autoregressive decoding. ",
     ]
 
     prompts = []
@@ -265,8 +292,8 @@ def extract_traces(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="deepseek-ai/DeepSeek-V2-Lite-Chat")
-    parser.add_argument("--num-prompts", type=int, default=10,
-                        help="Number of prompts (reduced from 15 for 26-layer extraction)")
+    parser.add_argument("--num-prompts", type=int, default=20,
+                        help="Number of prompts for diverse training data")
     parser.add_argument("--max-len", type=int, default=2048,
                         help="Max token length per prompt (reduced from 4096 for memory)")
     parser.add_argument("--save-dir", default="probes/traces")
