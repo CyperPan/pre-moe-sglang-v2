@@ -1,158 +1,158 @@
 {
   "layer_1": {
-    "expert_topk_recall": 0.7017490267753601,
-    "gpu_dispatch_accuracy": 0.981086015701294,
-    "gpu_miss_rate": 0.018913984298706055,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.84234619140625,
+    "gpu_dispatch_accuracy": 0.9639892578125,
+    "gpu_miss_rate": 0.0360107421875,
+    "total_test_tokens": 8192
   },
   "layer_2": {
-    "expert_topk_recall": 0.6222289800643921,
-    "gpu_dispatch_accuracy": 0.923123836517334,
-    "gpu_miss_rate": 0.07687616348266602,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8162434697151184,
+    "gpu_dispatch_accuracy": 0.9906005859375,
+    "gpu_miss_rate": 0.0093994140625,
+    "total_test_tokens": 8192
   },
   "layer_3": {
-    "expert_topk_recall": 0.6357535123825073,
-    "gpu_dispatch_accuracy": 0.988407552242279,
-    "gpu_miss_rate": 0.011592447757720947,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.6837158203125,
+    "gpu_dispatch_accuracy": 0.996826171875,
+    "gpu_miss_rate": 0.003173828125,
+    "total_test_tokens": 8192
   },
   "layer_4": {
-    "expert_topk_recall": 0.6851738691329956,
-    "gpu_dispatch_accuracy": 0.9963392019271851,
-    "gpu_miss_rate": 0.0036607980728149414,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.6063638925552368,
+    "gpu_dispatch_accuracy": 0.994873046875,
+    "gpu_miss_rate": 0.005126953125,
+    "total_test_tokens": 8192
   },
   "layer_5": {
-    "expert_topk_recall": 0.7074435353279114,
-    "gpu_dispatch_accuracy": 0.9707138538360596,
-    "gpu_miss_rate": 0.02928614616394043,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.78570556640625,
+    "gpu_dispatch_accuracy": 0.9652099609375,
+    "gpu_miss_rate": 0.0347900390625,
+    "total_test_tokens": 8192
   },
   "layer_6": {
-    "expert_topk_recall": 0.7784217596054077,
-    "gpu_dispatch_accuracy": 0.9957290887832642,
-    "gpu_miss_rate": 0.00427091121673584,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.7753499150276184,
+    "gpu_dispatch_accuracy": 0.9942626953125,
+    "gpu_miss_rate": 0.0057373046875,
+    "total_test_tokens": 8192
   },
   "layer_7": {
-    "expert_topk_recall": 0.6762253642082214,
-    "gpu_dispatch_accuracy": 0.9945088624954224,
-    "gpu_miss_rate": 0.005491137504577637,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.6717326045036316,
+    "gpu_dispatch_accuracy": 0.9971923828125,
+    "gpu_miss_rate": 0.0028076171875,
+    "total_test_tokens": 8192
   },
   "layer_8": {
-    "expert_topk_recall": 0.6895464658737183,
-    "gpu_dispatch_accuracy": 0.9981696009635925,
-    "gpu_miss_rate": 0.0018303990364074707,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.623291015625,
+    "gpu_dispatch_accuracy": 0.9935302734375,
+    "gpu_miss_rate": 0.0064697265625,
+    "total_test_tokens": 8192
   },
   "layer_9": {
-    "expert_topk_recall": 0.733984112739563,
-    "gpu_dispatch_accuracy": 0.9993898868560791,
-    "gpu_miss_rate": 0.0006101131439208984,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.67510986328125,
+    "gpu_dispatch_accuracy": 0.999267578125,
+    "gpu_miss_rate": 0.000732421875,
+    "total_test_tokens": 8192
   },
   "layer_10": {
-    "expert_topk_recall": 0.8163514137268066,
-    "gpu_dispatch_accuracy": 0.9914581775665283,
-    "gpu_miss_rate": 0.00854182243347168,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.7833455204963684,
+    "gpu_dispatch_accuracy": 0.9990234375,
+    "gpu_miss_rate": 0.0009765625,
+    "total_test_tokens": 8192
   },
   "layer_11": {
-    "expert_topk_recall": 0.7886922955513,
-    "gpu_dispatch_accuracy": 0.9701037406921387,
-    "gpu_miss_rate": 0.029896259307861328,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.76080322265625,
+    "gpu_dispatch_accuracy": 0.9888916015625,
+    "gpu_miss_rate": 0.0111083984375,
+    "total_test_tokens": 8192
   },
   "layer_12": {
-    "expert_topk_recall": 0.7381532788276672,
-    "gpu_dispatch_accuracy": 0.9926784634590149,
-    "gpu_miss_rate": 0.007321536540985107,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.7554524540901184,
+    "gpu_dispatch_accuracy": 0.994384765625,
+    "gpu_miss_rate": 0.005615234375,
+    "total_test_tokens": 8192
   },
   "layer_13": {
-    "expert_topk_recall": 0.808318018913269,
-    "gpu_dispatch_accuracy": 0.9292251467704773,
-    "gpu_miss_rate": 0.0707748532295227,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8932291269302368,
+    "gpu_dispatch_accuracy": 0.9844970703125,
+    "gpu_miss_rate": 0.0155029296875,
+    "total_test_tokens": 8192
   },
   "layer_14": {
-    "expert_topk_recall": 0.7866584658622742,
-    "gpu_dispatch_accuracy": 1.0,
-    "gpu_miss_rate": 0.0,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.7439371347427368,
+    "gpu_dispatch_accuracy": 0.9998779296875,
+    "gpu_miss_rate": 0.0001220703125,
+    "total_test_tokens": 8192
   },
   "layer_15": {
-    "expert_topk_recall": 0.7924547791481018,
-    "gpu_dispatch_accuracy": 0.992068350315094,
-    "gpu_miss_rate": 0.007931649684906006,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8713581562042236,
+    "gpu_dispatch_accuracy": 0.998779296875,
+    "gpu_miss_rate": 0.001220703125,
+    "total_test_tokens": 8192
   },
   "layer_16": {
-    "expert_topk_recall": 0.8684157133102417,
-    "gpu_dispatch_accuracy": 0.9798657894134521,
-    "gpu_miss_rate": 0.02013421058654785,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.9161173105239868,
+    "gpu_dispatch_accuracy": 0.9864501953125,
+    "gpu_miss_rate": 0.0135498046875,
+    "total_test_tokens": 8192
   },
   "layer_17": {
-    "expert_topk_recall": 0.7884889245033264,
-    "gpu_dispatch_accuracy": 0.992068350315094,
-    "gpu_miss_rate": 0.007931649684906006,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.84039306640625,
+    "gpu_dispatch_accuracy": 0.9930419921875,
+    "gpu_miss_rate": 0.0069580078125,
+    "total_test_tokens": 8192
   },
   "layer_18": {
-    "expert_topk_recall": 0.7797437310218811,
-    "gpu_dispatch_accuracy": 0.802928626537323,
-    "gpu_miss_rate": 0.197071373462677,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8712158203125,
+    "gpu_dispatch_accuracy": 0.90283203125,
+    "gpu_miss_rate": 0.09716796875,
+    "total_test_tokens": 8192
   },
   "layer_19": {
-    "expert_topk_recall": 0.6439902186393738,
-    "gpu_dispatch_accuracy": 0.961561918258667,
-    "gpu_miss_rate": 0.03843808174133301,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.7956339120864868,
+    "gpu_dispatch_accuracy": 0.9754638671875,
+    "gpu_miss_rate": 0.0245361328125,
+    "total_test_tokens": 8192
   },
   "layer_20": {
-    "expert_topk_recall": 0.7964205145835876,
-    "gpu_dispatch_accuracy": 0.9707138538360596,
-    "gpu_miss_rate": 0.02928614616394043,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8875121474266052,
+    "gpu_dispatch_accuracy": 0.981201171875,
+    "gpu_miss_rate": 0.018798828125,
+    "total_test_tokens": 8192
   },
   "layer_21": {
-    "expert_topk_recall": 0.7672361135482788,
-    "gpu_dispatch_accuracy": 0.9762049913406372,
-    "gpu_miss_rate": 0.023795008659362793,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8680012822151184,
+    "gpu_dispatch_accuracy": 0.986328125,
+    "gpu_miss_rate": 0.013671875,
+    "total_test_tokens": 8192
   },
   "layer_22": {
-    "expert_topk_recall": 0.8304860591888428,
-    "gpu_dispatch_accuracy": 0.9981696009635925,
-    "gpu_miss_rate": 0.0018303990364074707,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8906656503677368,
+    "gpu_dispatch_accuracy": 0.996337890625,
+    "gpu_miss_rate": 0.003662109375,
+    "total_test_tokens": 8192
   },
   "layer_23": {
-    "expert_topk_recall": 0.7479154467582703,
-    "gpu_dispatch_accuracy": 0.9847468137741089,
-    "gpu_miss_rate": 0.015253186225891113,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8501383066177368,
+    "gpu_dispatch_accuracy": 0.9869384765625,
+    "gpu_miss_rate": 0.0130615234375,
+    "total_test_tokens": 8192
   },
   "layer_24": {
-    "expert_topk_recall": 0.808318018913269,
-    "gpu_dispatch_accuracy": 0.9158022999763489,
-    "gpu_miss_rate": 0.08419770002365112,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.8805134892463684,
+    "gpu_dispatch_accuracy": 0.9676513671875,
+    "gpu_miss_rate": 0.0323486328125,
+    "total_test_tokens": 8192
   },
   "layer_25": {
-    "expert_topk_recall": 0.9208866953849792,
-    "gpu_dispatch_accuracy": 0.915192186832428,
-    "gpu_miss_rate": 0.08480781316757202,
-    "total_test_tokens": 1639
+    "expert_topk_recall": 0.9533894062042236,
+    "gpu_dispatch_accuracy": 0.94384765625,
+    "gpu_miss_rate": 0.05615234375,
+    "total_test_tokens": 8192
   },
   "layer_26": {
-    "expert_topk_recall": 0.900447428226471,
+    "expert_topk_recall": 0.8581746220588684,
     "gpu_dispatch_accuracy": 1.0,
     "gpu_miss_rate": 0.0,
-    "total_test_tokens": 1639
+    "total_test_tokens": 8192
   }
 }
