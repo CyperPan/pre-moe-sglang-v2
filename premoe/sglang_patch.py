@@ -122,7 +122,6 @@ FORWARD_PATCH_BEFORE_ATTN = '''
                     self._premoe_probe.eval()
                     self._premoe_num_experts = _n_exp
                     self._premoe_comm_stream = _torch.cuda.Stream(priority=-1)
-                    self.mlp._premoe_routing = None
                     print(f"[Pre-MoE] Layer {self.layer_id}: premoe-overlap (probe loaded, delay={self._premoe_delay_us}us)")
                 else:
                     self._premoe_mode = "serial"
@@ -157,62 +156,12 @@ FORWARD_PATCH_BEFORE_MLP = '''
         if self._premoe_mode == "premoe" and self._premoe_pred_ids is not None and self._premoe_comm_stream is not None:
             import torch as _torch
             _torch.cuda.current_stream().wait_stream(self._premoe_comm_stream)
+            self._premoe_pred_ids = None
+            self._premoe_pred_weights = None
         elif self._premoe_mode in ("serial", "premoe") and self._premoe_delay_us > 0:
             import torch as _torch
             if hidden_states is not None and hidden_states.shape[0] > 0:
                 _torch.cuda._sleep(int(self._premoe_delay_us * 1000))
-        if self._premoe_mode == "premoe" and self._premoe_pred_ids is not None:
-            if hasattr(self, 'mlp'):
-                self.mlp._premoe_routing = (
-                    self._premoe_pred_ids,
-                    self._premoe_pred_weights,
-                    self,
-                )
-            self._premoe_pred_ids = None
-            self._premoe_pred_weights = None
-'''
-
-# ---------------------------------------------------------------------------
-# MoE forward_normal patch: gate verify + conditional AllToAll skip
-# ---------------------------------------------------------------------------
-MOE_GATE_BYPASS = '''
-        # ── Pre-MoE: gate verify + conditional AllToAll skip ──
-        _premoe_r = getattr(self, '_premoe_routing', None)
-        if _premoe_r is not None:
-            self._premoe_routing = None
-            _p_ids, _p_wts, _layer_ref = _premoe_r
-            if _p_ids is not None and hidden_states.shape[0] > 0:
-                import torch as _torch
-                # Gate → true routing (cheap: one F.linear)
-                _true_logits = self.gate(hidden_states, gemm_output_zero_allocator) if gemm_output_zero_allocator is not None else self.gate(hidden_states)
-                _true_topk = self.topk(hidden_states, _true_logits)
-                _true_ids = _true_topk.topk_ids if hasattr(_true_topk, 'topk_ids') else _true_topk[1]
-                # Verify probe prediction vs gate truth
-                _epg = _layer_ref._premoe_num_experts // _layer_ref._premoe_ep_size
-                _pred_gpu = _p_ids // _epg
-                _true_gpu = _true_ids // _epg
-                _pred_peer = (_pred_gpu != _layer_ref._premoe_rank).any(dim=-1)
-                _true_peer = (_true_gpu != _layer_ref._premoe_rank).any(dim=-1)
-                _n_mm = int((_pred_peer != _true_peer).sum().item())
-                _layer_ref._premoe_stats["total"] += hidden_states.shape[0]
-                _layer_ref._premoe_stats["mismatches"] += _n_mm
-                if _n_mm <= hidden_states.shape[0] * 0.05:
-                    # HIT: pre-dispatch succeeded → skip AllToAll
-                    _layer_ref._premoe_stats["skips"] += 1
-                else:
-                    # MISS: pre-dispatch wrong → pay AllToAll cost now
-                    _layer_ref._premoe_stats["fallbacks"] += 1
-                    if _layer_ref._premoe_delay_us > 0:
-                        _torch.cuda._sleep(int(_layer_ref._premoe_delay_us * 1000))
-                # Both paths use gate routing (true_ids) for correctness
-                _sh_out = self._forward_shared_experts(hidden_states, gemm_output_zero_allocator) if hidden_states.shape[0] > 0 else None
-                _final = self.experts(hidden_states, _true_topk)
-                if _sh_out is not None:
-                    _final = _final + _sh_out
-                if self.tp_size > 1 and not should_allreduce_fusion and not use_reduce_scatter:
-                    import torch.distributed as _dist
-                    _dist.all_reduce(_final)
-                return _final
 '''
 
 
@@ -267,15 +216,6 @@ def apply_patch(dry_run: bool = False) -> str:
         mlp_call_pos = content.find(mlp_call_m, attn_pos if attn_pos != -1 else 0)
     if mlp_call_pos != -1:
         content = content[:mlp_call_pos] + FORWARD_PATCH_BEFORE_MLP + '\n' + content[mlp_call_pos:]
-
-    # 4. Gate bypass in forward_normal
-    fn_m = "    def forward_normal("
-    fn_pos = content.find(fn_m)
-    if fn_pos != -1:
-        shape_m = "        if hidden_states.shape[0] > 0:"
-        shape_pos = content.find(shape_m, fn_pos)
-        if shape_pos != -1:
-            content = content[:shape_pos] + MOE_GATE_BYPASS + '\n' + content[shape_pos:]
 
     if dry_run:
         print(f"[Pre-MoE] DRY RUN: {src}")
