@@ -82,21 +82,24 @@ def _get_deepseek_v2_path() -> Path:
 # ---------------------------------------------------------------------------
 INIT_PATCH = '''
         # ── Pre-MoE dispatch fields (auto-configured from env) ──
-        import os as _os
+        import os as _os, torch as _torch
         _premoe_env = _os.environ.get("PREMOE_MODE", "")
         self._premoe_mode = _premoe_env if _premoe_env in ("serial", "premoe") else None
         self._premoe_delay_us = int(_os.environ.get("PREMOE_DELAY_US", "2000"))
+        self._premoe_delay_cycles = int(self._premoe_delay_us * 1000)
         self._premoe_probe_dir = _os.environ.get("PREMOE_PROBE_DIR", "probes")
-        self._premoe_probe = None
+        self._premoe_probe_weight = None
         self._premoe_probe_loaded = False
         self._premoe_comm_stream = None
+        self._premoe_comm_event = _torch.cuda.Event()
         self._premoe_topk = 6
         self._premoe_num_experts = 64
         self._premoe_ep_size = 2
         self._premoe_rank = 0
         self._premoe_pred_ids = None
         self._premoe_pred_weights = None
-        self._premoe_stats = {"total": 0, "mismatches": 0, "skips": 0, "fallbacks": 0}
+        self._premoe_torch = _torch
+        self._premoe_F = _torch.nn.functional
 '''
 
 # ---------------------------------------------------------------------------
@@ -108,42 +111,51 @@ FORWARD_PATCH_BEFORE_ATTN = '''
         # ── Pre-MoE: lazy probe load + speculative dispatch ──
         if not self._premoe_probe_loaded and self._premoe_mode is not None:
             self._premoe_probe_loaded = True
-            import os as _os, torch as _torch
+            import os as _os
+            _torch = self._premoe_torch
             _is_moe = hasattr(self, 'mlp') and hasattr(self.mlp, 'gate')
             if self._premoe_mode == "premoe" and _is_moe:
                 _probe_path = _os.path.join(self._premoe_probe_dir, f"probe_layer{self.layer_id}.pt")
-                if _os.path.exists(_probe_path):
-                    from premoe.probe import LinearProbe
+                _min_gpu_acc = float(_os.environ.get("PREMOE_MIN_GPU_ACC", "0.95"))
+                _gpu_acc_ok = True
+                try:
+                    import json as _json
+                    _summary_path = _os.path.join(self._premoe_probe_dir, "probe_summary.json")
+                    if _os.path.exists(_summary_path):
+                        with open(_summary_path) as _sf:
+                            _summary = _json.load(_sf)
+                        _layer_key = f"layer_{self.layer_id}"
+                        if _layer_key in _summary:
+                            _gpu_acc = _summary[_layer_key].get("gpu_dispatch_accuracy", 1.0)
+                            if _gpu_acc < _min_gpu_acc:
+                                _gpu_acc_ok = False
+                                print(f"[Pre-MoE] Layer {self.layer_id}: serial-delay (GPU-acc={_gpu_acc:.4f} < {_min_gpu_acc})")
+                except Exception:
+                    pass
+                if _gpu_acc_ok and _os.path.exists(_probe_path):
                     _state = _torch.load(_probe_path, map_location=hidden_states.device, weights_only=True)
-                    _dim = _state["linear.weight"].shape[1]
-                    _n_exp = _state["linear.weight"].shape[0]
-                    self._premoe_probe = LinearProbe(_dim, _n_exp).to(device=hidden_states.device, dtype=hidden_states.dtype)
-                    self._premoe_probe.load_state_dict({k: v.to(hidden_states.dtype) for k, v in _state.items()})
-                    self._premoe_probe.eval()
-                    self._premoe_num_experts = _n_exp
+                    self._premoe_probe_weight = _state["linear.weight"].to(device=hidden_states.device, dtype=hidden_states.dtype)
+                    self._premoe_num_experts = self._premoe_probe_weight.shape[0]
                     self._premoe_comm_stream = _torch.cuda.Stream(priority=-1)
                     print(f"[Pre-MoE] Layer {self.layer_id}: premoe-overlap (probe loaded, delay={self._premoe_delay_us}us)")
                 else:
                     self._premoe_mode = "serial"
-                    print(f"[Pre-MoE] Layer {self.layer_id}: serial-delay (no probe, delay={self._premoe_delay_us}us)")
+                    if _gpu_acc_ok:
+                        print(f"[Pre-MoE] Layer {self.layer_id}: serial-delay (no probe, delay={self._premoe_delay_us}us)")
             elif self._premoe_mode == "serial" and _is_moe:
                 print(f"[Pre-MoE] Layer {self.layer_id}: serial-delay (delay={self._premoe_delay_us}us)")
             else:
                 self._premoe_mode = None
-        if self._premoe_mode == "premoe" and self._premoe_probe is not None and hidden_states.shape[0] > 1:
-            import torch as _torch
+        if self._premoe_mode == "premoe" and self._premoe_probe_weight is not None and hidden_states.shape[0] > 1:
+            _torch = self._premoe_torch
             with _torch.no_grad():
-                _probe_logits = self._premoe_probe(hidden_states)
-                _vals, _ids = _torch.topk(_probe_logits, k=self._premoe_topk, dim=-1)
-                _wts = _torch.softmax(_vals.float(), dim=-1)
-                self._premoe_pred_ids = _ids
-                self._premoe_pred_weights = _wts
-            if self._premoe_comm_stream is not None and self._premoe_delay_us > 0:
-                _ev = _torch.cuda.Event()
-                _ev.record()
+                _probe_logits = self._premoe_F.linear(hidden_states, self._premoe_probe_weight)
+                self._premoe_pred_ids = _torch.topk(_probe_logits, k=self._premoe_topk, dim=-1, sorted=False).indices
+            if self._premoe_comm_stream is not None and self._premoe_delay_cycles > 0:
+                self._premoe_comm_event.record()
                 with _torch.cuda.stream(self._premoe_comm_stream):
-                    self._premoe_comm_stream.wait_event(_ev)
-                    _torch.cuda._sleep(int(self._premoe_delay_us * 1000))
+                    self._premoe_comm_stream.wait_event(self._premoe_comm_event)
+                    _torch.cuda._sleep(self._premoe_delay_cycles)
 '''
 
 # ---------------------------------------------------------------------------
@@ -154,14 +166,11 @@ FORWARD_PATCH_BEFORE_ATTN = '''
 FORWARD_PATCH_BEFORE_MLP = '''
         # ── Pre-MoE: sync pre-dispatch / serial delay ──
         if self._premoe_mode == "premoe" and self._premoe_pred_ids is not None and self._premoe_comm_stream is not None:
-            import torch as _torch
-            _torch.cuda.current_stream().wait_stream(self._premoe_comm_stream)
+            self._premoe_torch.cuda.current_stream().wait_stream(self._premoe_comm_stream)
             self._premoe_pred_ids = None
-            self._premoe_pred_weights = None
-        elif self._premoe_mode in ("serial", "premoe") and self._premoe_delay_us > 0:
-            import torch as _torch
+        elif self._premoe_mode in ("serial", "premoe") and self._premoe_delay_cycles > 0:
             if hidden_states is not None and hidden_states.shape[0] > 0:
-                _torch.cuda._sleep(int(self._premoe_delay_us * 1000))
+                self._premoe_torch.cuda._sleep(self._premoe_delay_cycles)
 '''
 
 
